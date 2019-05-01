@@ -1,0 +1,62 @@
+=Source=
+https://www.instacart.com/datasets/grocery-shopping-2017
+or
+https://www.kaggle.com/c/instacart-market-basket-analysis/data
+(can use kaggle kernels for reference)
+
+***Important note from Matt***
+It may be a little confusing to understand the datasets - competition instructions and dataset descriptions were a little unclear.
+My understanding based on reading up on the kaggle discussions is as follows:
+- Transaction data is recorded at 2 levels: (1) Order level (ref: orders.csv), and (2) Product level (ref: order_products_*.csv). Products are what make up orders.
+- All the customers ids were divided into mutually exclusive train and test groups - you have 2 groups of customers.
+- When you look at the <eval_set> feature of the orders.csv file, "train" = latest order of a customer in the train group, "test" = latest order of a customer in the test group, and
+"prior" = prior orders of customers from either train/test group.
+- As you may notice, there is no "order_product_test.csv" dataset. Ie. The product level information of orders from test group customers was not provided.
+- In other words, I think the logical flow will go something like this:
+	a. Filter order_product_prior.csv for only <user_id> of customers that are in the train group.
+	b. Use filtered prior dataset from a. to build model to predict what train customers would buy using market basket analysis (mba).
+	c. Score model form b. against order_product_train.csv.
+	d. As we aren't doing this for the Kaggle competition, we won't need to do the extra step of using the doing a. for customers in the test group and applying the model in b. to it.
+	Moreover, it doesn't make sense to do this extra step since we don't have the ground truth for the test group order products.
+- For more information, you can refer to reference 1. of Section =Useful References= below.
+
+=Useful References=
+1. Understanding the data: https://www.kaggle.com/c/instacart-market-basket-analysis/discussion/34727
+2. EDA Kernel: https://www.kaggle.com/philippsp/exploratory-analysis-instacart/comments
+3. 2nd Place Solution: https://www.kaggle.com/c/instacart-market-basket-analysis/discussion/38143
+(Can't find 1st place)
+
+=Dataset Descriptions=
+`orders` (3.4m rows, 206k users):
+* `order_id`: order identifier
+* `user_id`: customer identifier
+* `eval_set`: which evaluation set this order belongs in (see `SET` described below)
+* `order_number`: the order sequence number for this user (1 = first, n = nth)
+* `order_dow`: the day of the week the order was placed on
+* `order_hour_of_day`: the hour of the day the order was placed on
+* `days_since_prior`: days since the last order, capped at 30 (with NAs for `order_number` = 1)
+
+`products` (50k rows):
+* `product_id`: product identifier
+* `product_name`: name of the product
+* `aisle_id`: foreign key
+* `department_id`: foreign key
+
+`aisles` (134 rows):
+* `aisle_id`: aisle identifier
+* `aisle`: the name of the aisle
+
+`deptartments` (21 rows):
+* `department_id`: department identifier
+* `department`: the name of the department
+
+`order_products__SET` (30m+ rows):
+* `order_id`: foreign key
+* `product_id`: foreign key
+* `add_to_cart_order`: order in which each product was added to cart
+* `reordered`: 1 if this product has been ordered by this user in the past, 0 otherwise
+
+where `SET` is one of the four following evaluation sets (`eval_set` in orders.csv):
+* `"prior"`: orders prior to that users most recent order (~3.2m orders)
+* `"train"`: training data supplied to participants (~131k orders)
+* `"test"`: test data reserved for machine learning competitions (~75k orders)

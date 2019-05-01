@@ -1,0 +1,124 @@
+---
+title: "Customer_Project_Reco"
+author: "Matthias Oh"
+date: "9 April 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import Libraries
+```{r, include = FALSE}
+packages <- c('data.table', 'tidyverse', 'recommenderlab')
+
+for(p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+  }
+  library(p, character.only = T)
+}
+```
+
+## Load Data
+```{r, echo=FALSE}
+aisles <- fread('Data/aisles.csv') # 134 aisles
+departments <- fread('Data/departments.csv') # 21 departments
+products <- fread('Data/products.csv') # ~50K products
+order_products_prior <- fread('Data/order_products__prior.csv',key=c("order_id"))  # ~32M individual products ordered
+orders <- fread('Data/orders.csv',key=c("order_id"))
+```
+
+## Data Preprocessing
+```{r}
+orders_prior <- subset(orders,eval_set=="prior") # ~3.2M "prior" orders
+orders_all <- merge(orders_prior,order_products_prior, by="order_id")  #Inner join
+
+orders_all <- orders_all[order(orders_all$user_id,orders_all$product_id),] #Order by ASC. order() returns a 1D integer index comprised of the row numbers such that sorting the rows according to that vector by indexing (additional step), would give a sort by ASC result.
+
+data_ind <- orders_all[,c("user_id", "product_id")]  #Extract only these 2 cols.
+
+setkey(data_ind,user_id,product_id) #Reorder (or sorts) the rows of a data.table by the columns provided. setkey() changes the input data.table by reference (no copy thus memory efficient) by specified cols.
+
+data <- aggregate(cbind(count = product_id) ~ product_id+user_id, data=data_ind, FUN = length) #Initialize 'count' col, which is summarized by applying the length function, grouped by product_id and user_id. Count will be used as a pseudo-rating.
+
+data <- setDT(data[,c(2,1,3)]) #Change data from dataframe into datatable by reference (not value therefore no copy created which would take up memory), ordering cols by 2nd, 1st, 3rd.
+```
+
+## Downsample Dataset
+```{r}
+data_orig <- data # save the original data
+
+users <- unique(data$user_id)
+user_samples <- users[sample(length(unique(data$user_id)), 10000, replace = FALSE)] #Sample based on 10000 unique user IDs w/o replacement.
+data <- subset(data,user_id %in% user_samples)
+
+products <- unique(data$product_id)
+product_samples = products[sample(length(unique(data$product_id)), 3000, replace = FALSE)] #Sample based on 3000 unique product IDs w/o replacement.
+data <- subset(data,product_id %in% product_samples)
+```
+
+## Filter out customers with only 1-2 orders - not ideal for evaluation.
+```{r}
+temp <- data[, .(count=.N), by=.(user_id)]
+temp <- temp[count>2]
+data <- data[user_id %in% temp$user_id]
+rm(temp)
+gc()
+```
+
+## Partition Train and Test (DEPRECATED)
+```{r}
+#set.seed(123)
+#nall <- nrow(data)
+#ntrain <- floor(0.7*nall)
+#index <- seq(1,nall) #Generate sequence for all row numbers.
+#trainIndex <- sample(index,ntrain) 
+#testIndex <- index[-trainIndex] #Negative index excludes trainIndex sequence.
+
+#train <- data[trainIndex,]
+#test <- data[testIndex,]
+```
+
+## Save data files for easy loading
+```{r}
+save(data, file="data.Rda")
+#save(train, file="train.Rda")
+#save(test, file="test.Rda")
+```
+
+## Train ALS-implicit feedback, latent factor model.
+```{r}
+URM <- as(data, "realRatingMatrix")
+reco_model <- Recommender(URM, method = "ALS_implicit")
+train_results <- predict(reco_model, URM, type = "topNList", n=5) #Prediction results for train.
+```
+
+```{r}
+train_results_l <- as(train_results, "list")
+```
+
+```{r}
+train_results_l[1]
+```
+
+## Evaluation
+```{r}
+es <- evaluationScheme(URM, method='cross-validation',k=10,given=-1)
+es
+```
+
+```{r}
+ev_ALSimplicit <- evaluate(es, method='ALS_implicit', type='ratings', keepModel = FALSE)
+
+avg(ev_ALSimplicit)
+```
+
+```{r}
+ev_IBCF <- evaluate(es, method='IBCF', type='ratings', keepModel = FALSE)
+
+avg(ev_IBCF)
+```
+
+The latent factor model optimized on alternating least squares (ALS) has a better performance than the item-based collaborative filtering (IBCF) model.
